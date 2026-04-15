@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>README Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-slate-950 text-slate-100">
+    <div class="max-w-6xl mx-auto px-6 py-10">
+      <div class="flex items-center justify-between gap-6">
+        <div>
+          <h1 class="text-3xl font-semibold">README Generator</h1>
+          <p class="text-slate-300 mt-1">Paste a GitHub repo URL. We’ll generate a README you can preview and download.</p>
+        </div>
+      </div>
+
+      <div class="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-1 bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+          <label class="block text-sm font-medium text-slate-200">GitHub repository URL</label>
+          <input
+            id="repoUrl"
+            class="mt-2 w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            placeholder="https://github.com/pallets/flask"
+          />
+
+          <button id="runBtn" class="mt-4 w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 px-3 py-2 font-medium">
+            Generate
+          </button>
+
+          <div class="mt-4 text-sm">
+            <div class="text-slate-400">Status</div>
+            <div id="status" class="mt-1 font-mono text-slate-200">idle</div>
+            <div id="error" class="mt-2 text-red-300 whitespace-pre-wrap"></div>
+          </div>
+        </div>
+
+        <div class="lg:col-span-2 grid grid-cols-1 gap-6">
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <h2 class="text-lg font-semibold">Generated README</h2>
+                <div id="meta" class="text-sm text-slate-400 mt-1"></div>
+              </div>
+              <a
+                id="downloadBtn"
+                href="#"
+                class="hidden rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-2 font-medium text-sm"
+                download="README.md"
+              >
+                Download README.md
+              </a>
+            </div>
+            <pre
+              id="readme"
+              class="mt-3 text-sm bg-slate-950 border border-slate-800 rounded-lg p-4 overflow-auto max-h-[34rem] whitespace-pre-wrap"
+            ></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById("status");
+      const errorEl = document.getElementById("error");
+      const readmeEl = document.getElementById("readme");
+      const metaEl = document.getElementById("meta");
+      const downloadBtn = document.getElementById("downloadBtn");
+      const runBtn = document.getElementById("runBtn");
+
+      function setStatus(s) {
+        statusEl.textContent = s;
+      }
+
+      function setError(e) {
+        errorEl.textContent = e || "";
+      }
+
+      function renderReadme(statusPayload) {
+        const readme = statusPayload?.readme_full || statusPayload?.readme || "";
+        readmeEl.textContent = readme || "(README not generated yet.)";
+
+        const stack = statusPayload?.tech_stack ? `Tech stack: ${statusPayload.tech_stack}` : "";
+        const generatedAt = statusPayload?.readme_generated_at
+          ? `Generated: ${new Date(statusPayload.readme_generated_at).toLocaleString()}`
+          : "";
+        metaEl.textContent = [stack, generatedAt].filter(Boolean).join(" • ");
+
+        if (statusPayload?.download_url) {
+          downloadBtn.href = statusPayload.download_url;
+          downloadBtn.classList.remove("hidden");
+        } else {
+          downloadBtn.classList.add("hidden");
+        }
+      }
+
+      async function pollUntilDone(repositoryId) {
+        const maxMs = 180000;
+        const start = Date.now();
+        while (Date.now() - start < maxMs) {
+          const r = await fetch(`/api/repositories/${repositoryId}/status/`);
+          const j = await r.json();
+          setStatus(j.status);
+          if (j.last_error) setError(j.last_error);
+          renderReadme(j);
+          if (j.status === "completed") return true;
+          if (j.status === "failed") return false;
+          await new Promise((res) => setTimeout(res, 1500));
+        }
+        setError("Timed out waiting for background job.");
+        return false;
+      }
+
+      async function loadResults(repositoryId) {
+        const r = await fetch(`/api/repositories/${repositoryId}/status/`);
+        const j = await r.json();
+        renderReadme(j);
+      }
+
+      runBtn.addEventListener("click", async () => {
+        setError("");
+        readmeEl.textContent = "";
+        metaEl.textContent = "";
+        downloadBtn.classList.add("hidden");
+        setStatus("starting");
+        runBtn.disabled = true;
+        runBtn.classList.add("opacity-60");
+
+        try {
+          const repoUrl = document.getElementById("repoUrl").value.trim();
+          const res = await fetch("/api/generate-readme/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ repo_url: repoUrl }),
+          });
+          const j = await res.json();
+          if (!res.ok) {
+            setStatus("error");
+            setError(JSON.stringify(j, null, 2));
+            return;
+          }
+
+          setStatus(j.status);
+          const ok = await pollUntilDone(j.repository_id);
+          if (ok) await loadResults(j.repository_id);
+        } catch (e) {
+          setStatus("error");
+          setError(String(e));
+        } finally {
+          runBtn.disabled = false;
+          runBtn.classList.remove("opacity-60");
+        }
+      });
+    </script>
+  </body>
+</html>
+
