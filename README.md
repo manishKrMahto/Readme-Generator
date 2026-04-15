@@ -73,19 +73,21 @@ At a high level:
 
 ```mermaid
 flowchart LR
-  U[User] -->|Repo URL| UI[Web UI<br/>(Django template + Tailwind)]
-  UI -->|POST| API1[DRF API<br/>/api/generate-readme/]
-  API1 -->|enqueue| C[Celery Task<br/>generate_readme_task]
+  U[User] -->|Repo URL| UI[Web UI]
+  UI -->|POST| API1[Generate API]
+  API1 -->|enqueue| C[Celery Task]
 
-  C --> ING[Ingestion<br/>clone + filter + metadata]
-  ING --> PROC[Processing<br/>parse + chunk]
-  PROC --> AG[Agents Orchestrator<br/>LLM calls]
-  AG --> DB[(SQLite DB<br/>Repository/Files/Chunks/Monitor)]
-  AG --> FS[(Cloned repo dir<br/>writes README.md)]
+  C --> ING[Repo Ingestion Service]
+  ING --> PROC[Processing Pipeline Service]
+  PROC --> AG[Agents Orchestrator Service]
 
-  UI -->|poll| API2[DRF API<br/>/api/repositories/:id/status/]
+  AG --> DB[(SQLite Database)]
+  AG --> FS[(Local Repo Workspace)]
+
+  UI -->|poll| API2[Status API]
   API2 --> DB
-  UI -->|download| API3[DRF API<br/>/api/repositories/:id/readme/download/]
+
+  UI -->|download| API3[Download API]
   API3 --> FS
   API3 --> DB
 ```
